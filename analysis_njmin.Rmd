@@ -1,0 +1,507 @@
+---
+title: "analysis"
+author: "Jancer Gomes"
+date: "2024-07-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 200)
+```
+
+## Data Ingestion and Cleaning
+
+
+
+```{r}
+library(tidyverse)
+library(haven)
+library(ggthemes)
+
+# Most data cleaning scripts come from https://www.brodrigues.co/blog/2019-05-04-diffindiff_part2/
+# original comments kept on this codeblock since they are useful
+```
+
+
+```{r}
+download.file("http://davidcard.berkeley.edu/data_sets/njmin.zip", "njmin.zip")
+unzip("njmin.zip", exdir= "nj_data")
+```
+
+
+
+```{r}
+codebook <- read_lines("codebook")
+```
+
+```{r}
+
+variable_names <- codebook %>%
+    `[`(8:59) %>% #I select lines 8 to 59 using the `[`() function
+    `[`(-c(5, 6, 13, 14, 32, 33)) %>%  #I remove lines that I do not need
+    str_sub(1, 13) %>% # I only keep the first 13 characters 
+# (which are the variable names, plus some white space characters) 
+    str_squish() %>%   #  to remove all the unneeded white space characters
+    str_to_lower()  # c
+variable_names
+```
+
+```{r}
+raw <- read_table2("nj_data/public.dat",
+                      col_names = FALSE)
+
+renamed <- raw |>
+    select(-X47) %>%
+    `colnames<-`(., variable_names) |>
+    mutate_all(as.numeric) |>
+    mutate(sheet = as.character(sheet))
+```
+
+```{r}
+
+### This code block creates njmin, a long-form version of the data,
+### which is useful for plotting.
+dataset <- renamed %>%
+    mutate(chain = case_when(chain == 1 ~ "bk",
+                             chain == 2 ~ "kfc",
+                             chain == 3 ~ "roys",
+                             chain == 4 ~ "wendys")) %>%
+    mutate(state = case_when(state == 1 ~ "New Jersey",
+                             state == 0 ~ "Pennsylvania")) %>%
+    mutate(region = case_when(southj == 1 ~ "southj",
+              centralj == 1 ~ "centralj",
+              northj == 1 ~ "northj",
+              shore == 1 ~ "shorej",
+              pa1 == 1 ~ "pa1",
+              pa2 == 1 ~ "pa2")) %>%
+    mutate(meals = case_when(meals == 0 ~ "None",
+                             meals == 1 ~ "Free meals",
+                             meals == 2 ~ "Reduced price meals",
+                             meals == 3 ~ "Both free and reduced price meals")) %>%
+    mutate(meals2 = case_when(meals2 == 0 ~ "None",
+                             meals2 == 1 ~ "Free meals",
+                             meals2 == 2 ~ "Reduced price meals",
+                             meals2 == 3 ~ "Both free and reduced price meals")) %>%
+    mutate(status2 = case_when(status2 == 0 ~ "Refused 2nd interview",
+                               status2 == 1 ~ "Answered 2nd interview",
+                               status2 == 2 ~ "Closed for renovations",
+                               status2 == 3 ~ "Closed permanently",
+                               status2 == 4 ~ "Closed for highway construction",
+                               status2 == 5 ~ "Closed due to Mall fire")) %>%
+    mutate(co_owned = if_else(co_owned == 1, "Yes", "No")) %>%
+    mutate(bonus = if_else(bonus == 1, "Yes", "No")) %>%
+    mutate(special2 = if_else(special2 == 1, "Yes", "No")) %>%
+    mutate(type2 = if_else(type2 == 1, "Phone", "Personal")) %>%
+    select(sheet, chain, co_owned, state, region, everything()) %>%
+    select(-southj, -centralj, -northj, -shore, -pa1, -pa2) %>%
+    mutate(date2 = lubridate::mdy(date2)) %>%
+    rename(open2 = open2r) %>%
+    rename(firstinc2 = firstin2)
+
+dataset1 <- dataset %>%
+    select(-ends_with("2"), -sheet, -chain, -co_owned, -state, -region, -bonus) %>%
+    mutate(type = NA_character_,
+           status = NA_character_,
+           date = NA)
+
+dataset2 <- dataset %>%
+    select(ends_with("2")) %>%
+    #mutate(bonus = NA_character_) %>%
+    rename_all(~str_remove(., "2"))
+
+other_cols <- dataset %>%
+    select(sheet, chain, co_owned, state, region, bonus)
+
+other_cols_1 <- other_cols %>%
+    mutate(observation = "February 1992")
+
+other_cols_2 <- other_cols %>%
+    mutate(observation = "November 1992")
+
+dataset1 <- bind_cols(other_cols_1, dataset1)
+dataset2 <- bind_cols(other_cols_2, dataset2)
+
+njmin <- bind_rows(dataset1, dataset2) %>%
+    mutate(fte = empft + nmgrs + emppt*0.5,) |> 
+    select(sheet, chain, state, region, observation, everything())
+```
+
+```{r}
+dataset
+```
+
+```{r}
+ nj_data <- renamed |>
+    mutate(chain = case_when(chain == 1 ~ "bk",
+                             chain == 2 ~ "kfc",
+                             chain == 3 ~ "roys",
+                             chain == 4 ~ "wendys")) |>
+    
+    mutate(state = case_when(state == 1 ~ "New Jersey",
+                             state == 0 ~ "Pennsylvania")) |>
+    
+    mutate(region = case_when(southj == 1 ~ "southj",
+              centralj == 1 ~ "centralj",
+              northj == 1 ~ "northj",
+              shore == 1 ~ "shorej",
+              pa1 == 1 ~ "pa1",
+              pa2 == 1 ~ "pa2")) |>
+    
+    mutate(meals = case_when(meals == 0 ~ "None",
+                             meals == 1 ~ "Free meals",
+                             meals == 2 ~ "Reduced price meals",
+                             meals == 3 ~ "Both free and reduced price meals")) |>
+    mutate(meals2 = case_when(meals2 == 0 ~ "None",
+                             meals2 == 1 ~ "Free meals",
+                             meals2 == 2 ~ "Reduced price meals",
+                             meals2 == 3 ~ "Both free and reduced price meals")) |>
+    
+    mutate(status2 = case_when(status2 == 0 ~ "Refused 2nd interview",
+                               status2 == 1 ~ "Answered 2nd interview",
+                               status2 == 2 ~ "Closed for renovations",
+                               status2 == 3 ~ "Closed permanently",
+                               status2 == 4 ~ "Closed for highway construction",
+                               status2 == 5 ~ "Closed due to Mall fire")) |>
+    
+    mutate(co_owned = if_else(co_owned == 1, "Yes", "No")) |>
+    mutate(bonus = if_else(bonus == 1, "Yes", "No")) |>
+    mutate(special2 = if_else(special2 == 1, "Yes", "No")) |>
+    mutate(type2 = if_else(type2 == 1, "Phone", "Personal")) |>
+    mutate(both_fte_available = if_all(c(empft, nmgrs, emppt, empft2, nmgrs2, emppt2),
+                             ~ !is.na(.)) ) |> 
+    mutate(temp_closed =  status2 %in% c("Closed for highway construction",
+                                         "Closed for renovations", "Closed due to Mall fire") 
+           ) |> 
+    
+    mutate(fte_before = empft + nmgrs + emppt*0.5,
+         fte_after = empft2 + nmgrs2 + emppt2 * 0.5,
+           )  |> 
+     
+    select(sheet, chain, co_owned, state, region, everything()) |>
+    select(-southj, -centralj, -northj, -shore, -pa1, -pa2) |>
+    mutate(date2 = lubridate::mdy(date2)) |>
+    rename(open2 = open2r) |>
+    rename(firstinc2 = firstin2)
+```
+
+```{r}
+nj_data |> 
+    # mutate(both_emp_available = !is.na(empft) & !is.na(empft2) ) |> 
+    select(empft, empft2, both_emp_available)
+```
+```{r}
+nj_data |> 
+  mutate(fte_before = empft + nmgrs + emppt*0.5,
+         fte_after = empft2 + nmgrs2 + emppt2 * 0.5,
+           ) 
+```
+
+
+```{r}
+njmin
+```
+## Descriptive Analysis
+
+```{r}
+# install.packages('extrafont')
+library(extrafont)
+```
+
+```{r}
+# font_import()
+# loadfonts(quiet= TRUE)
+```
+
+
+
+```{r}
+njmin |>
+    ggplot(aes(x= state, y=wage_st)) +
+    facet_wrap(vars(observation)) +
+    ggtitle("Distribution of wages (Pre x Post raise)") +
+    theme_fivethirtyeight() +
+    # theme_economist() +
+    # theme(text = element_text( family = "Vivaldi" )) +
+    scale_color_economist() +
+    geom_jitter(alpha=.4) + 
+    # geom_point(alpha=.4) + 
+    # stat_summary(fun.y="max", geom="point", color="red")
+    labs(y="Starting wage ($/hr)") +
+    theme(plot.title = element_text(margin = margin(b=10), ),
+          axis.title.y = element_text(margin = margin(r=10)),
+          panel.spacing.x = unit(3, "lines"),
+          panel.grid.major.x = element_blank(),
+          strip.text.x = element_text(size=12, margin = margin(b=2) ),
+          ) +
+    
+    stat_summary(fun.data=mean_cl_boot, geom="errorbar", width=0.1, colour="red") +
+    stat_summary(fun.y="mean", geom="point", color="red") 
+    
+# coord_flip()
+    # stat_summary(fun.y="mean", geom="text", color="red")
+    # geom_jitter(alpha=.4, stat="count")
+
+
+```
+
+
+```{r}
+njmin |>
+    ggplot(aes(x= state, y=empft)) +
+    facet_wrap(vars(observation)) +
+    ggtitle("Distribution of number of employees (Pre x Post raise)") +
+    # theme_economist() +
+    theme_fivethirtyeight() +
+    theme(panel.grid.major.x = element_blank(),
+          legend.position = "top",
+          legend.justification = c(0,1),
+          legend.key.size = unit(1.5, "line")
+          ) +
+    geom_jitter(alpha=.4,
+                width = 0.2) +
+    
+    # stat_summary(fun.y="mean",
+    #              geom="point",
+    #              color="red",
+    #              size=2) +
+    
+    stat_summary(aes(colour ="Mean 95% CI"),
+                 fun.data=mean_cl_boot,
+                 geom="pointrange",
+                 width=0.1,
+                 # color="blue"
+                 ) +
+    
+    
+    scale_color_manual("", values=c("Mean 95% CI"="blue")) +
+    guides(color = guide_legend(override.aes = list(size = 0.8)))
+    
+
+```
+
+
+
+```{r}
+njmin |> 
+    # select(state,, empft, wage_st) |> 
+    # group_by(state, observation) |> 
+    group_by(state) |>
+    summarise(
+        mean_fte_before = mean(fte[observation=="February 1992"], na.rm = T ),
+        mean_fte_after = mean(fte[observation=="November 1992"], na.rm = T ),
+        
+              ) #
+|> 
+    # pivot_wider(names_from = "state", values_from = c(mean_fte_before, mean_fte_after) )
+    # spread(state)
+# |> 
+              
+```
+
+```{r}
+njmin |> 
+    # select(state,, empft, wage_st) |> 
+    # group_by(state, observation) |> 
+    group_by(state) |>
+    summarise(
+        mean_fte_before = mean(fte[observation=="February 1992"], na.rm = T ),
+        mean_fte_after = mean(fte[observation=="November 1992"], na.rm = T ),
+        
+              ) |>
+    mutate(
+        change_fte = mean_fte_after - mean_fte_before,
+        
+        ) |> 
+    pivot_longer(cols = !state) |>
+    pivot_wider(names_from = state, values_from = value ) |> 
+    select(name, Pennsylvania, "New Jersey") |> 
+    mutate(across(!name, ~ round(.,2)))
+# |> 
+    # spread(state)
+# |> 
+              
+```
+
+
+
+```{r}
+
+tab_3 <- nj_data |> 
+    group_by(state) |>
+    summarise(
+        mean_fte_before = mean(fte_before, na.rm = T ),
+        mean_fte_after = mean(fte_after, na.rm = T ),
+        
+        # for balanced FTE change calculation
+        mean_fte_before_bal = mean(fte_before[both_fte_available], na.rm = T ),
+        mean_fte_after_bal = mean(fte_after[both_fte_available], na.rm = T ),
+        
+        mean_fte_before_temp = mean(fte_before[both_fte_available | temp_closed]),
+        # for last row calculation
+        mean_fte_after_temp = mean(
+            if_else(temp_closed,
+                    0,
+                    fte_after)[both_fte_available | temp_closed],
+            na.rm = T ),
+        
+              ) |>
+    mutate(
+        change_fte = mean_fte_after - mean_fte_before,
+        change_fte_balanced = mean_fte_after_bal - mean_fte_before_bal,
+        change_fte_temp = mean_fte_after_temp - mean_fte_before_temp,
+        
+        ) |> 
+    
+    select(!c(mean_fte_before_bal, mean_fte_after_bal,
+              mean_fte_before_temp, mean_fte_after_temp)) |>
+    
+    pivot_longer(cols = !state) |>
+    pivot_wider(names_from = state, values_from = value ) |> 
+    select(name, Pennsylvania, "New Jersey") |> 
+    mutate(across(!name, ~ round(.,2)),
+           Difference = `New Jersey` - Pennsylvania)
+
+tab_3
+```
+
+```{r}
+# Some manual tweaks were needed in the latex table
+xtab <- tab_3 |> 
+    mutate(name = case_match(name,
+                             "mean_fte_before" ~ "FTE employment before,\newline all available observations",
+                             "mean_fte_after" ~ "FTE employment after, \newline all available observations",
+                             "change_fte" ~ "Change in mean FTE employment",
+                             "change_fte_balanced" ~ "Change in mean FTE employment, balanced sample of stores",
+                             "change_fte_temp" ~ "Change in mean FTE employment, setting FTE at temporarily closed stores to 0",
+                             
+                             )) |> 
+    xtable(type = "latex",
+           label = "tab:indCC",
+           caption = "Average Employment per Store Before and After the Rise in New Jersey Minimum Wage",
+           booktabs = T)
+
+# xtab <- xtable(df)
+align(xtab) <- "|lp{6cm}|l|l|l|"
+print(xtab)
+
+# print.xtable(xtab,sanitize.text.function=function(x){x})
+```
+
+
+```{r}
+# install.packages("ggtext")
+# install.packages("xtable")
+library(ggtext)
+library(xtable)
+```
+
+
+```{r fig.width=8, fig.height=4}
+did_tib <-  tibble(
+    var = factor(c(rep(0, 3), rep(1, 3)),
+                 levels = c(0, 1),
+                 labels = c("pre-intervention\n(February 1992)", "post-intervention\n(November 1992)")
+                 ),
+    value= c(23.33, 20.44, 20.44, 21.17, 21.03, 20.44-2.17),
+    state= factor(
+        rep(c("Pennsylvania", "New Jersey", "New Jersey (counterfactual)"), 2),
+        levels = c("Pennsylvania", "New Jersey", "New Jersey (counterfactual)") )
+       )
+
+fig <- did_tib |> 
+    ggplot(aes(x=var, y=value, color=state , group = state)) +
+    geom_line(aes(linetype = state != "New Jersey (counterfactual)"),
+              show.legend = TRUE) +
+    geom_point() +
+    
+    geom_vline(xintercept = 1.35, linetype="dashed") +
+    
+    annotate("text", x=1.35,
+             y=21.6,
+             label="raise in NJ's minimum wage\n(April 1992)",
+             angle=90, size=3.5) +
+    
+    annotate(
+        "segment",
+        
+        x=2,
+        y=18.27,
+        yend = 21.03,
+        # linetype = 4,
+        
+        color = "#7CAE00",
+        linetype = 5,
+        linewidth = 0.15,
+        show.legend = FALSE,
+        inherit.aes = F,
+        # guides(element_blank())
+        ) + 
+    
+    geom_richtext(aes(x=2.02, y=19.8),
+             # label=paste("Causal effect:", ),
+             label="**Causal effect:<br> 2.76**",
+             color = "#7CAE00" ,
+             label.colour = NA,
+             hjust = 0,
+             # face=2,
+             size=3.5) +
+    
+    geom_text(aes(label = value),
+              # vjust = "outward",
+              vjust = c("bottom","bottom","bottom", "bottom","top","bottom"),
+              hjust = "outward",
+              # nudge_= 0.05,
+              size = 4,
+              show.legend = FALSE) +
+    
+    scale_linetype_manual(values = c("TRUE" = "solid", "FALSE" = "dashed")) +
+    
+    scale_color_manual( values = c("#00BFC4", "#7CAE00", "#7CAE00" ),
+                        guide = guide_legend(override.aes = list(linetype=c("solid", "solid", "dashed")))
+                        ) +
+    
+    scale_x_discrete(,expand = expansion(0.3))+
+    
+    guides(
+    linetype = FALSE,
+    ) +
+    
+    labs(x="",
+         y="FTE employment per store",
+         color= "",
+         ) +
+    
+    # theme_fivethirtyeight() +
+    theme_classic() +
+    
+    theme(legend.position = "top",
+          # legend.key.width = unit(2.4,"lines"),
+          legend.key.size = unit(2.4,"lines"),
+          legend.key.spacing.x = unit(0.8,"cm"),
+          axis.title.y = element_text(margin = margin(r=10),
+                                      size= 12),
+          
+          legend.text= element_markdown(),
+          panel.grid.major = element_blank(),
+          # axis.line = element_blank(),
+          # axis.ticks.y =  element_blank(),
+          # plot.background = element_blank()
+          )  
+fig
+# ggsave("fte_did.pdf",
+#        dpi=300,
+#        width = 8,
+#        height = 4
+# )
+
+```
+
+
+
+
+
+
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
